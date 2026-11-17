@@ -19,6 +19,7 @@ import {
   realpathSync,
   statSync,
   createReadStream,
+  copyFileSync,
 } from 'node:fs'
 import { request as httpRequest, Agent as HttpAgent } from 'node:http'
 import { join, dirname } from 'node:path'
@@ -32,6 +33,27 @@ const HOME = homedir()
 const CONFIG_PATH = process.env.DSH_REMOTE_CONFIG ?? join(HOME, '.dsh', 'remote', 'config.json')
 const PAIR_PATH = join(HOME, '.dsh', 'remote', 'pair.txt')
 const LOCK_PATH = join(HOME, '.dsh', 'remote', 'agent.pid')
+
+/**
+ * 要让手机上的「安装手机端」页直接显示的产物：二维码和安装包。
+ * 放在 attachments 下——那是 /__fs 已经允许的根目录，插件用相对名引用即可，
+ * 不用给 relay 或解析逻辑开后门。
+ */
+const PUBLIC_QR_NAME = 'dsh-remote-pair.png'
+const PUBLIC_APK_NAME = 'dsh-remote.apk'
+const ATTACHMENTS_DIR = join(HOME, '.dsh', 'attachments')
+
+/** 把文件复制到 attachments，出错只记日志，不影响配对。 */
+function publishToAttachments(source, name) {
+  try {
+    mkdirSync(ATTACHMENTS_DIR, { recursive: true })
+    copyFileSync(source, join(ATTACHMENTS_DIR, name))
+    return true
+  } catch (error) {
+    log(`发布 ${name} 失败：${error.message}`)
+    return false
+  }
+}
 const LOG_PREFIX = '[dsh-remote]'
 const DEBUG = process.env.DSH_REMOTE_DEBUG === '1'
 
@@ -752,6 +774,7 @@ async function onPairCode(code, expiresAt) {
     const { default: QRCode } = await import('qrcode')
     const out = join(dirname(PAIR_PATH), 'pair.png')
     await QRCode.toFile(out, url, { width: 720, margin: 2, errorCorrectionLevel: 'M' })
+    publishToAttachments(out, PUBLIC_QR_NAME)
     log(`二维码已更新 ${out}`)
   } catch {
     /* 没装 qrcode 就只留文字 */
@@ -760,7 +783,24 @@ async function onPairCode(code, expiresAt) {
 
 // ---------------------------------------------------------------- 启动
 
+/**
+ * 把安装包放到 attachments，让手机上的页面能直接下载。
+ *
+ * 配置项 apkFile 指向本机的 APK；没配或文件不在就跳过——
+ * 页面那边会显示「安装包还没准备好」而不是给一个死链。
+ */
+function publishApkOnce() {
+  const source = String(config.apkFile ?? '').trim()
+  if (!source) return
+  if (!existsSync(source)) {
+    log(`apkFile 不存在，跳过：${source}`)
+    return
+  }
+  if (publishToAttachments(source, PUBLIC_APK_NAME)) log(`安装包已发布：${PUBLIC_APK_NAME}`)
+}
+
 void ensurePocketCookie().catch(() => {})
+publishApkOnce()
 connect()
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
