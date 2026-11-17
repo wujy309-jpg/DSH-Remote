@@ -1,0 +1,20 @@
+package dev.dshremote.app;
+
+/**
+ * 构建期常量。这个文件由 {@code build.sh} 从本模板渲染到 {@code build/gen/}，
+ * <b>不要改成 .java 直接提交</b>——否则站点域名就会被写死进源码。
+ *
+ * <p>替换的占位符：{@code @HOST@}（来自环境变量 {@code DSH_REMOTE_HOST}）。
+ */
+public final class BuildConfig {
+
+  private BuildConfig() {}
+
+  /** 手机端要连的站点域名，例如 {@code dsh.example.com}。 */
+  public static final String HOST = "@HOST@";
+
+  /** 构建时的版本号，跟 AndroidManifest 里的一致，方便 App 内自检/日志。 */
+  public static final int VERSION_CODE = @VERSION_CODE@;
+
+  public static final String VERSION_NAME = "@VERSION_NAME@";
+}

@@ -1,0 +1,8 @@
+{
+  "name": "dsh-remote-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "agent.js",
+  "dependencies": { "ws": "^8.18.0", "qrcode": "^1.5.4" }
+}

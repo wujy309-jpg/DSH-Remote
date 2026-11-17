@@ -1,0 +1,154 @@
+/* DSH Remote —— 移动端排版层 v2（只改样式，不动结构） */
+:root{
+  --dshx-ink:#16181d; --dshx-ink2:#61666b; --dshx-ink3:#8b9096;
+  --dshx-line:#0000000f; --dshx-line2:#0000001a; --dshx-brand:#2563eb;
+}
+
+/* ---------- 顶栏 ---------- */
+header[class*="_header"]{
+  height:auto !important; min-height:0 !important; padding:6px 20px 0 !important;
+  border-bottom:1px solid var(--dshx-line) !important;
+}
+header[class*="_header"] [class*="_titleRow"]{min-height:28px !important;margin:0 !important;gap:4px !important}
+/* 手机上「在 Finder 中打开」没有意义，让位给会话标题 */
+header[class*="_header"] [class*="_headerUtilities"]{display:none !important}
+header[class*="_header"] [class*="_titleCluster"]{max-width:none !important;flex:1 1 auto !important;min-width:0 !important}
+header[class*="_header"] [class*="_crumbs"]{font-size:15px !important;line-height:22px !important;font-weight:600;letter-spacing:.012em}
+header[class*="_header"] [class*="_crumb"]{font-size:15px !important;line-height:22px !important;font-weight:600}
+header[class*="_header"] [class*="_tabs"]{margin-top:0 !important;padding-bottom:1px !important}
+header[class*="_header"] [class*="_tab"]{font-size:13px !important;height:24px !important;line-height:24px !important;padding:0 1px !important;letter-spacing:.02em}
+
+/* ---------- 正文 ---------- */
+/* 消息列：去掉宿主自带的两层留白，收到 20px */
+[class*="_column"]{box-sizing:border-box !important; padding:0 !important}
+[class*="_markdown"]{font-size:15px !important;line-height:1.7 !important;letter-spacing:.008em}
+[class*="_markdown"] p{margin:0 0 12px !important}
+[class*="_markdown"] p:last-child{margin-bottom:0 !important}
+[class*="_markdown"] li{margin:0 0 7px !important;line-height:1.7 !important}
+[class*="_markdown"] ul,[class*="_markdown"] ol{padding-left:20px !important;margin:0 0 13px !important}
+/* 行内代码：允许在词内断行，否则长路径会把上一行顶出大洞 */
+[class*="_markdown"] code{
+  font-size:12.5px !important; line-height:1.45 !important;
+  padding:1px 5px !important; border-radius:4px !important;
+  white-space:normal !important; overflow-wrap:anywhere !important; word-break:break-word !important;
+  background:rgba(0,0,0,.045) !important; border:0 !important;
+}
+[class*="_markdown"] h1,[class*="_markdown"] h2,[class*="_markdown"] h3{font-size:15.5px !important;margin:16px 0 8px !important}
+
+/* ---------- 用户气泡 / 操作行 ---------- */
+[class*="_bubble"]{border-radius:18px !important;padding:8px 14px !important;font-size:15px !important;line-height:1.62 !important}
+[class*="_actions"]{opacity:.58;gap:0 !important}
+[class*="_timeStart"]{font-size:12px !important;letter-spacing:.02em;opacity:.72}
+
+/* ---------- 附件卡 ---------- */
+[class*="_file"]{border-radius:14px !important;border-color:var(--dshx-line) !important}
+
+/* ---------- 输入区 ---------- */
+[class*="_composerSeat"] [class*="_card"]{
+  border-radius:18px !important;
+  border:1px solid var(--dshx-line2) !important;
+  box-shadow:0 1px 2px #0000000a,0 10px 24px -8px #00000014 !important;
+  padding-top:4px !important; gap:6px !important;
+}
+[class*="_composerSeat"] [class*="_scroll"]{min-height:30px !important}
+[class*="_composerSeat"] [class*="_input"]{font-size:16px !important;line-height:22px !important;min-height:30px !important;padding-top:3px !important}
+[class*="_composerSeat"] [class*="_placeholder"]{font-size:14px !important}
+[class*="_composerSeat"] [class*="_row"]{height:38px !important;padding:0 8px 4px !important;gap:6px !important}
+[class*="_composerSeat"] [class*="_primary"]{width:36px !important;height:36px !important;border-radius:18px !important;background:var(--dshx-brand) !important;box-shadow:0 1px 2px #2563eb33 !important}
+
+/* ---------- 底部状态条 ---------- */
+[class*="_dock"]{font-size:9.5px !important;gap:4px !important;padding-top:2px !important;opacity:.75;letter-spacing:-.01em}
+[class*="_dock"] [class*="_pill"]{font-size:10.5px !important;background:transparent !important;padding:0 4px !important}
+
+/* ---------- 去掉 pocket 注入的重复抽屉按钮（图标缺 sprite，只剩半个括号） ---------- */
+button[data-mobile-nav="toggle"]{display:none !important}
+
+/* 状态条：去掉 pill 里的小图标，腾出文字空间 */
+[class*="_dock"] [class*="_pill"] svg{display:none !important}
+[class*="_dock"] [class*="_pill"]{padding:0 2px !important;letter-spacing:0 !important}
+
+/* ---------- 侧栏（抽屉） ---------- */
+[class*="_sectionLabel"]{font-size:11.5px !important;letter-spacing:.08em !important;font-weight:500 !important;text-transform:uppercase;opacity:.7}
+[class*="_projectRow"]{font-size:13.5px !important;height:33px !important;border-radius:8px !important}
+[class*="_sessionRow"]{font-size:13.5px !important;height:30px !important;border-radius:8px !important}
+[class*="_panelRow"]{font-size:13.5px !important;height:34px !important;border-radius:8px !important}
+
+/* ---------- 窄屏（360dp 一类，1080px @3x）单独收紧 ---------- */
+@media (max-width: 400px){
+  [class*="_markdown"]{font-size:14.2px !important;line-height:1.72 !important;letter-spacing:.006em}
+  [class*="_markdown"] p{margin:0 0 11px !important}
+  [class*="_markdown"] li{margin:0 0 6px !important}
+  [class*="_markdown"] code{font-size:11.5px !important;padding:1px 4px !important}
+  [class*="_markdown"] ul,[class*="_markdown"] ol{padding-left:17px !important;margin:0 0 11px !important}
+  [class*="_markdown"] li{padding-left:0 !important}
+  [class*="_actions"] [class*="_action"]{width:24px !important;height:24px !important}
+  [class*="_actions"] [class*="_action"] svg{width:15px !important;height:15px !important}
+  [class*="_composerSeat"] [class*="_placeholder"]{font-size:13.5px !important}
+  header[class*="_header"] [class*="_tab"]{font-size:12.5px !important}
+  [class*="_bubble"]{font-size:14.2px !important;padding:7px 12px !important}
+  header[class*="_header"]{padding-top:5px !important}
+  header[class*="_header"] [class*="_crumbs"],header[class*="_header"] [class*="_crumb"]{font-size:14.5px !important}
+  [class*="_dock"]{font-size:9px !important;gap:3px !important}
+  /* 窄屏只留「轮/步」和上下文占比，token 与缓存命中让位 */
+  [class*="_dock"] > div > span[class*="_anchor"]:nth-child(2){display:none !important}
+  [class*="_dock"] > div > span[class*="_anchor"]{min-width:0 !important;flex:1 1 auto !important}
+  /* 附件卡：只收字号，不动 padding（改了会把文字挤居中） */
+  [class*="_file"] [class*="_name"],[class*="_file"] [class*="_title"]{font-size:13.5px !important}
+}
+
+/* ---------- 顶栏与两边的距离（用户点名：左右两组贴边太近） ---------- */
+header[class*="_header"]{padding-left:20px !important;padding-right:20px !important}
+[class*="_leadingSeat"]{left:20px !important}
+header[class*="_header"] [class*="_headerCorner"]{margin-right:0 !important}
+header[class*="_header"] [class*="_tabs"]{padding-left:2px !important;padding-right:0 !important}
+header[class*="_header"] button[class*="_tab"]{margin-left:0 !important;padding:0 2px !important}
+header[class*="_header"] button[class*="_tab"]::after{left:0 !important;right:0 !important;bottom:0 !important;height:2px !important}
+header[class*="_header"] [class*="_viewTabs"]{margin-left:2px !important;gap:26px !important}
+
+/* ================= v3（2026-11-16） ================= */
+
+/* pocket 注入的浮动抽屉按钮：和页面自带的侧栏按钮重复，
+   而且 fixed 在左上角，会盖住「自动化任务」这类页面的标题，
+   也会压住聊天气泡上方的「回到底部」。 */
+button[data-mobile-nav="fab"]{display:none !important}
+
+/* 抽屉底部：「导出会话日志」原来是一整条灰边大药丸，像输入框；
+   降成轻量行，并和账号行之间加一条分隔线。 */
+[data-mobile-nav="drawer-actions"]{
+  padding:6px 8px 2px !important;
+  border-top:1px solid var(--dshx-line) !important;
+  margin-top:2px !important;
+}
+button[data-mobile-nav="session-log"]{
+  flex:1 1 auto !important; height:30px !important;
+  border:0 !important; border-radius:8px !important;
+  background:transparent !important;
+  justify-content:flex-start !important;
+  padding:0 8px !important;
+  font-size:12px !important; font-weight:400 !important;
+  color:var(--dshx-ink2) !important; opacity:.9 !important;
+  box-shadow:none !important;
+}
+button[data-mobile-nav="explorer"]{
+  height:30px !important; border:0 !important; border-radius:8px !important;
+  background:transparent !important; box-shadow:none !important;
+  font-size:12px !important; color:var(--dshx-ink2) !important; padding:0 8px !important;
+}
+
+/* 顶部图标 28px：加一圈不可见热区，手指更容易点中（不影响排版） */
+header button[aria-label]{position:relative}
+header button[aria-label]::after{content:"";position:absolute;inset:-5px;border-radius:999px}
+
+/* ================= v1.7（2026-11-16） ================= */
+
+/* 文件交付卡：手机上整张卡就是「打开文件」，
+   右侧那组「显示位置 / 用 PyCharm 打开」在手机上点不到也看不懂，收起。 */
+[data-presented-file]{transition:opacity .12s}
+[data-presented-file]:active{opacity:.72}
+[data-presented-file] [class*="actions"]{display:none !important}
+[data-presented-file] [class*="previewHint"]{display:none !important}
+
+/* 触控热区：复制按钮 24px、回到底部 34px，手指容易点偏 */
+button[aria-label="复制"]{position:relative}
+button[aria-label="复制"]::after{content:"";position:absolute;inset:-7px;border-radius:10px}
+button[aria-label="回到底部"]{width:38px !important;height:38px !important;border-radius:19px !important}

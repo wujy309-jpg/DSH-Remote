@@ -1,0 +1,8 @@
+{
+  "meta": {
+    "title": "File sharing",
+    "description": "Adds Share to the file context menu and hands the file to the phone share sheet (WeChat, QQ, DingTalk, and more). Shown only inside the DSH Remote app.",
+    "detail": "docs/DETAIL.md"
+  },
+  "menu": { "share": "Share" }
+}

@@ -1,0 +1,8 @@
+{
+  "meta": {
+    "title": "文件分享",
+    "description": "在文件右键菜单里加一条「分享」，把文件交给手机系统的分享面板（微信、QQ、钉钉等）。只在 DSH Remote App 里出现。",
+    "detail": "docs/DETAIL.md"
+  },
+  "menu": { "share": "分享" }
+}

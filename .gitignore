@@ -1,0 +1,40 @@
+# ---- 依赖 ----------------------------------------------------------------
+node_modules/
+node_modules
+package-lock.json.bak
+
+# ---- 构建产物 ------------------------------------------------------------
+android/build/
+android/*.apk
+android/*.apk.idsig
+*.class
+
+# ---- 密钥 / 证书：绝对不能进仓库 ----------------------------------------
+*.keystore
+*.jks
+*.p12
+*.pem
+*.key
+*.cer
+*.crt
+debug.keystore
+
+# ---- 本地配置与运行时状态 ----------------------------------------------
+config.json
+config.local.json
+.env
+.env.*
+!.env.example
+*.log
+logs/
+pair.txt
+pair.png
+
+# ---- 编辑器 / 系统 -------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+*.swp
+*~
