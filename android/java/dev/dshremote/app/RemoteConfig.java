@@ -12,12 +12,20 @@ import java.util.Locale;
  * {@link SharedPreferences} 里，首次启动由设置页填（构建期注入的
  * {@link BuildConfig#HOST} 只作为预填的默认值）。
  *
- * <p>只存 {@code host[:port]}，协议固定 https——手机端必须过 TLS，
- * 这里不做「允许 http」的开关，少一个被误用的口子。
+ * <p>两条通路，规则不同：
+ * <ul>
+ *   <li><b>公网</b>：必须 https。手机和服务器之间隔着互联网，明文等于把会话 cookie
+ *       送给路上的每一跳。</li>
+ *   <li><b>局域网</b>：允许 http，但<b>只对私有地址</b>放行（RFC1918 / 回环 / 链路本地 /
+ *       {@code *.local}）。局域网里没有可信证书可用，强行要求 https 等于让这个模式
+ *       根本没法用。</li>
+ * </ul>
+ * 判定集中在 {@link #isPrivateHost}，不在别处复制。
  */
 public final class RemoteConfig {
 
   private static final String PREFS = "dsh_remote";
+  private static final String KEY_SCHEME = "scheme";
   private static final String KEY_AUTHORITY = "authority";
   private static final String KEY_PAIR_CODE = "pair_code";
 
@@ -25,6 +33,12 @@ public final class RemoteConfig {
 
   public RemoteConfig(Context context) {
     this.prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+  }
+
+  /** {@code https} 或 {@code http}；没配置时返回 {@code https}。 */
+  public String scheme() {
+    String value = prefs.getString(KEY_SCHEME, "https");
+    return value == null || value.isEmpty() ? "https" : value;
   }
 
   /** 已配置的 {@code host[:port]}；没配返回空串。 */
@@ -37,10 +51,10 @@ public final class RemoteConfig {
     return !authority().isEmpty();
   }
 
-  /** 站点根地址，形如 {@code https://dsh.example.com:8443}（不带结尾斜杠）。 */
+  /** 站点根地址，形如 {@code https://dsh.example.com} 或 {@code http://192.168.1.5:3081}。 */
   public String origin() {
     String value = authority();
-    return value.isEmpty() ? "" : "https://" + value;
+    return value.isEmpty() ? "" : scheme() + "://" + value;
   }
 
   /** 只有主机名、没有端口——{@code Uri.getHost()} 比对的也是这个。 */
@@ -53,8 +67,167 @@ public final class RemoteConfig {
     return hostMatches(authority(), host);
   }
 
+  public void save(Endpoint endpoint, String pairCode) {
+    if (endpoint == null) return;
+    prefs
+        .edit()
+        .putString(KEY_SCHEME, endpoint.scheme)
+        .putString(KEY_AUTHORITY, endpoint.authority)
+        .putString(KEY_PAIR_CODE, pairCode == null ? "" : pairCode.trim())
+        .apply();
+  }
+
+  public void clear() {
+    prefs.edit().clear().apply();
+  }
+
+  /** 取走一次性配对码，读过就清掉——不然每次冷启动都会重新走一遍配对。 */
+  public String takePairCode() {
+    String code = prefs.getString(KEY_PAIR_CODE, "");
+    if (code == null || code.isEmpty()) return "";
+    prefs.edit().putString(KEY_PAIR_CODE, "").apply();
+    return code;
+  }
+
+  // ---------------------------------------------------------------- 解析
+
+  /** 解析结果：{@code scheme} + {@code host[:port]}。 */
+  public static final class Endpoint {
+    public final String scheme;
+    public final String authority;
+
+    Endpoint(String scheme, String authority) {
+      this.scheme = scheme;
+      this.authority = authority;
+    }
+
+    public String origin() {
+      return scheme + "://" + authority;
+    }
+
+    /** 授权显示用的短描述，例如 {@code 192.168.1.5:3081（局域网）}。 */
+    public String label() {
+      return "http".equals(scheme) ? authority + "（局域网）" : authority;
+    }
+
+    @Override
+    public String toString() {
+      return origin();
+    }
+  }
+
   /**
-   * {@link #hostName()} 的静态版，方便纯 JVM 单测（不需要 {@code Context}）。
+   * 把用户输入（或二维码里解出来的地址）规范成 {@link Endpoint}。
+   *
+   * <p>容忍：{@code dsh.example.com}、{@code https://dsh.example.com/}、
+   * {@code https://dsh.example.com/__pair?code=ABC12345}、
+   * {@code dsh.example.com:8443}、{@code http://192.168.1.5:3081}。
+   *
+   * <p>不给协议时按主机判断：私有地址默认 http（局域网），其余默认 https。
+   *
+   * @return 规范化结果；不合法返回 {@code null}
+   */
+  public static Endpoint parseEndpoint(String input) {
+    if (input == null) return null;
+    String text = input.trim();
+    if (text.isEmpty()) return null;
+
+    String lower = text.toLowerCase(Locale.ROOT);
+    String scheme = null;
+    if (lower.startsWith("https://")) {
+      scheme = "https";
+      text = text.substring(8);
+    } else if (lower.startsWith("http://")) {
+      scheme = "http";
+      text = text.substring(7);
+    } else if (lower.contains("://")) {
+      return null; // 别的协议不是我们的
+    }
+
+    // 丢掉路径 / 查询串 / 片段
+    for (int i = 0; i < text.length(); i += 1) {
+      char c = text.charAt(i);
+      if (c == '/' || c == '?' || c == '#') {
+        text = text.substring(0, i);
+        break;
+      }
+    }
+    text = text.trim();
+    if (text.isEmpty()) return null;
+    if (!text.matches("[A-Za-z0-9.:_-]+")) return null;
+
+    int colon = text.indexOf(':');
+    String host = colon < 0 ? text : text.substring(0, colon);
+    if (host.isEmpty() || host.startsWith(".") || host.endsWith(".") || host.contains("..")) {
+      return null;
+    }
+    if (!host.contains(".") && !"localhost".equalsIgnoreCase(host)) return null;
+    // 看着像 IPv4 就必须是合法 IPv4，否则 192.168.1.999 这种会被当域名放行
+    if (host.matches("[0-9.]+")) {
+      String[] octets = host.split("\\.", -1);
+      if (octets.length != 4) return null;
+      for (String octet : octets) {
+        if (octet.isEmpty() || octet.length() > 3) return null;
+        if (Integer.parseInt(octet) > 255) return null;
+      }
+    }
+
+    if (colon >= 0) {
+      int port;
+      try {
+        port = Integer.parseInt(text.substring(colon + 1));
+      } catch (NumberFormatException e) {
+        return null;
+      }
+      if (port < 1 || port > 65535) return null;
+    }
+
+    String authority = text.toLowerCase(Locale.ROOT);
+    boolean local = isPrivateHost(host);
+    if (scheme == null) {
+      // 没写协议：局域网地址默认 http，公网地址默认 https
+      scheme = local ? "http" : "https";
+    }
+    if ("http".equals(scheme) && !local) return null; // 公网不走明文
+
+    return new Endpoint(scheme, authority);
+  }
+
+  /**
+   * 私有 / 本地可达地址：RFC1918、回环、链路本地，以及 {@code *.local}。
+   *
+   * <p>只有这些地址允许走明文 http。
+   */
+  public static boolean isPrivateHost(String host) {
+    if (host == null) return false;
+    String value = host.trim().toLowerCase(Locale.ROOT);
+    if (value.isEmpty()) return false;
+    if ("localhost".equals(value)) return true;
+    if (value.endsWith(".local")) return true;
+
+    String[] parts = value.split("\\.");
+    if (parts.length != 4) return false;
+    int[] octets = new int[4];
+    for (int i = 0; i < 4; i += 1) {
+      if (parts[i].isEmpty() || parts[i].length() > 3) return false;
+      for (int j = 0; j < parts[i].length(); j += 1) {
+        if (!Character.isDigit(parts[i].charAt(j))) return false;
+      }
+      octets[i] = Integer.parseInt(parts[i]);
+      if (octets[i] > 255) return false;
+    }
+    if (octets[0] == 127) return true; // 回环
+    if (octets[0] == 10) return true; // 10/8
+    if (octets[0] == 192 && octets[1] == 168) return true; // 192.168/16
+    if (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31) return true; // 172.16/12
+    if (octets[0] == 169 && octets[1] == 254) return true; // 链路本地
+    return false;
+  }
+
+  // ---------------------------------------------------------------- 供纯 JVM 单测用的静态辅助
+
+  /**
+   * {@link #hostName()} 的静态版，方便单测（不需要 {@code Context}）。
    *
    * @param authority {@code host[:port]}，可为 null / 空
    */
@@ -75,75 +248,5 @@ public final class RemoteConfig {
     if (mine.isEmpty() || host == null) return false;
     String other = host.trim().toLowerCase(Locale.ROOT);
     return other.equals(mine) || other.endsWith("." + mine);
-  }
-
-  public void save(String authority, String pairCode) {
-    prefs
-        .edit()
-        .putString(KEY_AUTHORITY, authority == null ? "" : authority)
-        .putString(KEY_PAIR_CODE, pairCode == null ? "" : pairCode.trim())
-        .apply();
-  }
-
-  public void clear() {
-    prefs.edit().clear().apply();
-  }
-
-  /** 取走一次性配对码，读过就清掉——不然每次冷启动都会重新走一遍配对。 */
-  public String takePairCode() {
-    String code = prefs.getString(KEY_PAIR_CODE, "");
-    if (code == null || code.isEmpty()) return "";
-    prefs.edit().putString(KEY_PAIR_CODE, "").apply();
-    return code;
-  }
-
-  /**
-   * 把用户输入（或二维码里解出来的地址）规范成 {@code host[:port]}。
-   *
-   * <p>容忍以下几种写法：{@code dsh.example.com}、{@code https://dsh.example.com/}、
-   * {@code https://dsh.example.com/__pair?code=ABC12345}、
-   * {@code dsh.example.com:8443}。路径、查询串、片段都会被丢掉。
-   *
-   * @return 规范后的 authority（小写）；不合法返回 {@code null}
-   */
-  public static String normalizeAuthority(String input) {
-    if (input == null) return null;
-    String text = input.trim();
-    if (text.isEmpty()) return null;
-
-    String lower = text.toLowerCase(Locale.ROOT);
-    if (lower.startsWith("http://")) return null; // 明文不接
-    if (lower.startsWith("https://")) text = text.substring(8);
-    else if (lower.contains("://")) return null; // 别的协议不是我们的
-
-    // 丢掉路径 / 查询串 / 片段
-    for (int i = 0; i < text.length(); i += 1) {
-      char c = text.charAt(i);
-      if (c == '/' || c == '?' || c == '#') {
-        text = text.substring(0, i);
-        break;
-      }
-    }
-    text = text.trim();
-    if (text.isEmpty()) return null;
-    if (!text.matches("[A-Za-z0-9.-]+(:[0-9]{1,5})?")) return null;
-
-    int colon = text.indexOf(':');
-    String host = colon < 0 ? text : text.substring(0, colon);
-    if (host.isEmpty()) return null;
-    if (host.startsWith(".") || host.endsWith(".") || host.contains("..")) return null;
-    // 要么是带点的域名，要么是 localhost——其余基本都是输错了
-    if (!host.contains(".") && !"localhost".equalsIgnoreCase(host)) return null;
-
-    if (colon >= 0) {
-      int port;
-      try {
-        port = Integer.parseInt(text.substring(colon + 1));
-      } catch (NumberFormatException e) {
-        return null;
-      }
-      if (port < 1 || port > 65535) return null;
-    }
-    return text.toLowerCase(Locale.ROOT);
   }
 }

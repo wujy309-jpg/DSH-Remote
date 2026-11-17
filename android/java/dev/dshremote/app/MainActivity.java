@@ -336,9 +336,9 @@ public class MainActivity extends Activity {
     }
     String preset = BuildConfig.HOST == null ? "" : BuildConfig.HOST.trim();
     if (!preset.isEmpty()) {
-      String authority = RemoteConfig.normalizeAuthority(preset);
-      if (authority != null) {
-        config.save(authority, "");
+      RemoteConfig.Endpoint endpoint = RemoteConfig.parseEndpoint(preset);
+      if (endpoint != null) {
+        config.save(endpoint, "");
         loadConfigured("");
         return;
       }
@@ -377,22 +377,23 @@ public class MainActivity extends Activity {
     if (data == null) return false;
     String scheme = data.getScheme() == null ? "" : data.getScheme().toLowerCase(Locale.ROOT);
 
-    String authority;
+    RemoteConfig.Endpoint endpoint;
     String code;
     if (scheme.equals("dshremote")) {
-      authority = RemoteConfig.normalizeAuthority(data.getQueryParameter("host"));
+      // host 可以带协议（http://192.168.1.5:3081），也可以只有域名
+      endpoint = RemoteConfig.parseEndpoint(data.getQueryParameter("host"));
       code = data.getQueryParameter("code");
-    } else if (scheme.equals("https")
+    } else if ((scheme.equals("https") || scheme.equals("http"))
         && data.getPath() != null
         && data.getPath().startsWith("/__pair")) {
-      authority = RemoteConfig.normalizeAuthority(data.toString());
+      endpoint = RemoteConfig.parseEndpoint(data.toString());
       code = data.getQueryParameter("code");
     } else {
       return false;
     }
-    if (authority == null) return false;
+    if (endpoint == null) return false;
 
-    config.save(authority, code);
+    config.save(endpoint, code);
     loadConfigured(code);
     return true;
   }
@@ -1815,7 +1816,7 @@ public class MainActivity extends Activity {
     box.addView(title, titleParams);
 
     TextView sub = new TextView(this);
-    sub.setText("电脑上的 DSH Remote 设置页里有二维码，扫一下就能连。\n也可以手动填服务器地址。");
+    sub.setText("公网：填 https:// 开头的域名。\n局域网：填 192.168.x.x:3081 这样的地址。\n有二维码的话直接扫。");
     sub.setTextSize(12.5f);
     sub.setGravity(Gravity.CENTER);
     sub.setLineSpacing(dp(3), 1f);
@@ -1865,7 +1866,7 @@ public class MainActivity extends Activity {
     box.addView(use, useParams);
 
     TextView foot = new TextView(this);
-    foot.setText("地址必须是 https。这个 App 不保存密码，配对码只用一次。");
+    foot.setText("公网强制 https；局域网（192.168/10.x/172.16-31）可用 http。配对码只用一次。");
     foot.setTextSize(11.5f);
     foot.setGravity(Gravity.CENTER);
     foot.setTextColor(dark ? 0xFF6B7280 : 0xFF9AA4B2);
@@ -1921,17 +1922,16 @@ public class MainActivity extends Activity {
   }
 
   private void applySetupFromFields() {
-    String authority =
-        RemoteConfig.normalizeAuthority(
-            setupServer == null ? "" : setupServer.getText().toString());
-    if (authority == null) {
-      toast("地址格式不对，应该像 dsh.example.com 或 https://dsh.example.com");
+    RemoteConfig.Endpoint endpoint =
+        RemoteConfig.parseEndpoint(setupServer == null ? "" : setupServer.getText().toString());
+    if (endpoint == null) {
+      toast("地址不对：公网要 https://域名，局域网可以填 192.168.x.x:3081");
       return;
     }
     String code = setupCode == null ? "" : setupCode.getText().toString().trim();
-    config.save(authority, code);
+    config.save(endpoint, code);
     loadConfigured(code);
-    toast(code.isEmpty() ? "已连接到 " + authority : "正在配对…");
+    toast(code.isEmpty() ? "已连接到 " + endpoint.label() : "正在配对…");
   }
 
   private void openScanner() {
@@ -1953,30 +1953,31 @@ public class MainActivity extends Activity {
     if (raw.isEmpty()) return;
 
     String lower = raw.toLowerCase(Locale.ROOT);
-    String authority;
+    RemoteConfig.Endpoint endpoint;
     String code = "";
     if (lower.startsWith("dshremote://")) {
       Uri uri = Uri.parse(raw);
-      authority = RemoteConfig.normalizeAuthority(uri.getQueryParameter("host"));
+      endpoint = RemoteConfig.parseEndpoint(uri.getQueryParameter("host"));
       code = uri.getQueryParameter("code");
-    } else if (lower.startsWith("https://") && raw.contains("__pair")) {
+    } else if ((lower.startsWith("https://") || lower.startsWith("http://"))
+        && raw.contains("__pair")) {
       Uri uri = Uri.parse(raw);
-      authority = RemoteConfig.normalizeAuthority(raw);
+      endpoint = RemoteConfig.parseEndpoint(raw);
       code = uri.getQueryParameter("code");
     } else {
-      authority = RemoteConfig.normalizeAuthority(raw);
+      endpoint = RemoteConfig.parseEndpoint(raw);
     }
 
-    if (authority == null) {
+    if (endpoint == null) {
       // 扫到了但不是地址：把原文塞进输入框，让用户自己看一眼
       if (setupServer != null) setupServer.setText(raw);
       toast("这个二维码里没有可用的服务器地址");
       return;
     }
     String finalCode = code == null ? "" : code.trim();
-    config.save(authority, finalCode);
+    config.save(endpoint, finalCode);
     loadConfigured(finalCode);
-    toast(finalCode.isEmpty() ? "已连接到 " + authority : "正在配对…");
+    toast(finalCode.isEmpty() ? "已连接到 " + endpoint.label() : "正在配对…");
   }
 
   // ------------------------------------------------------------------ 生命周期

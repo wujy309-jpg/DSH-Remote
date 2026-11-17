@@ -102,6 +102,10 @@ pocket 没跑起来时，日志会写明，手机端会看到「电脑上的 DSH
 
 浏览器打开 `https://dsh.example.com`，输 8 位配对码。
 
+**不想走公网也可以只用局域网**：手机和电脑在同一个 WiFi 时，直接在 App 里填
+`192.168.x.x:3081`（dsh-pocket 的地址）即可，不经过 relay、不需要域名和证书。
+App 对私有地址放行明文 http，对公网地址强制 https。
+
 想要「文件能发给微信 / APK 能直装」这类手机原生动作，再装个安卓壳：
 
 ```bash
@@ -159,7 +163,7 @@ node test/smoke.mjs
 node --test test/mime.test.mjs test/dsh-auth.test.mjs
 
 # 3. 安卓的文件类型判定（只要有 JDK，不用模拟器）
-(cd android && ./test-logic.sh)   # 文件类型判定 + 地址规范化，共 37 条
+(cd android && ./test-logic.sh)   # 文件类型判定 + 地址规范化，共 80 条
 
 # 4. 端到端十项：需要真实部署，配对码在 relay 日志里
 node test/e2e.mjs https://dsh.example.com <配对码>
