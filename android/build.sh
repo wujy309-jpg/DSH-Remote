@@ -3,10 +3,9 @@
 # 打 DSH Remote 的安卓壳。不需要 Gradle、不需要 Android Studio，只用 SDK 自带的工具：
 #   javac → d8 → aapt2 → zipalign → apksigner
 #
-# 必填的环境变量：
-#   DSH_REMOTE_HOST   手机要连的站点域名（例如 dsh.example.com），不写死进源码
-#
-# 可选：
+# 可选的环境变量：
+#   DSH_REMOTE_HOST   预填的站点域名（例如 dsh.example.com）。留空就打成「通用包」：
+#                     装完在手机上填地址或扫码，一个包适配所有部署
 #   ANDROID_SDK / ANDROID_HOME   SDK 根目录（默认 ~/Library/Android/sdk）
 #   BUILD_TOOLS                  用哪个 build-tools 版本（默认自动挑最新的）
 #   PLATFORM                     用哪个 android.jar（默认自动挑最新的 platforms/android-*）
@@ -23,16 +22,14 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 HOST="${DSH_REMOTE_HOST:-}"
-if [ -z "$HOST" ]; then
-  echo "错误：没有设置 DSH_REMOTE_HOST（手机要连的站点域名，例如 dsh.example.com）" >&2
-  exit 1
+if [ -n "$HOST" ]; then
+  case "$HOST" in
+    *[!A-Za-z0-9.-]* | .* | *.)
+      echo "错误：DSH_REMOTE_HOST='$HOST' 不是合法域名" >&2
+      exit 1
+      ;;
+  esac
 fi
-case "$HOST" in
-  *[!A-Za-z0-9.-]* | .* | *.)
-    echo "错误：DSH_REMOTE_HOST='$HOST' 不是合法域名" >&2
-    exit 1
-    ;;
-esac
 
 VERSION_CODE="${VERSION_CODE:-11}"
 VERSION_NAME="${VERSION_NAME:-1.10}"
@@ -60,7 +57,7 @@ AJAR="$SDK/platforms/$PLATFORM/android.jar"
 echo "SDK:        $SDK"
 echo "build-tools: $BUILD_TOOLS"
 echo "platform:   $PLATFORM"
-echo "host:       $HOST"
+echo "host:       ${HOST:-（空，通用包：装完在手机上填地址或扫码）}"
 echo "version:    $VERSION_NAME ($VERSION_CODE)"
 
 # ---------------------------------------------------------------- 渲染模板

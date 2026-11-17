@@ -159,7 +159,7 @@ node test/smoke.mjs
 node --test test/mime.test.mjs test/dsh-auth.test.mjs
 
 # 3. 安卓的文件类型判定（只要有 JDK，不用模拟器）
-(cd android && ./test-filetypes.sh)
+(cd android && ./test-logic.sh)   # 文件类型判定 + 地址规范化，共 37 条
 
 # 4. 端到端十项：需要真实部署，配对码在 relay 日志里
 node test/e2e.mjs https://dsh.example.com <配对码>

@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <title>扫描二维码</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0f1115;
+        overflow: hidden;
+        font-family: -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      #stage {
+        position: fixed;
+        inset: 0;
+      }
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        background: #000;
+      }
+      /* 取景框：四条直角边，中间挖空，四周压暗 */
+      #mask {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background: radial-gradient(
+          circle at 50% 42%,
+          rgba(0, 0, 0, 0) 0,
+          rgba(0, 0, 0, 0) 118px,
+          rgba(0, 0, 0, 0.55) 119px
+        );
+      }
+      #frame {
+        position: fixed;
+        left: 50%;
+        top: 42%;
+        width: 236px;
+        height: 236px;
+        margin: -118px 0 0 -118px;
+        pointer-events: none;
+        border-radius: 14px;
+        box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.16) inset;
+      }
+      #frame i {
+        position: absolute;
+        width: 30px;
+        height: 30px;
+        border: 3px solid #60a5fa;
+        border-radius: 4px;
+      }
+      #frame i:nth-child(1) {
+        left: -1px;
+        top: -1px;
+        border-right: 0;
+        border-bottom: 0;
+      }
+      #frame i:nth-child(2) {
+        right: -1px;
+        top: -1px;
+        border-left: 0;
+        border-bottom: 0;
+      }
+      #frame i:nth-child(3) {
+        left: -1px;
+        bottom: -1px;
+        border-right: 0;
+        border-top: 0;
+      }
+      #frame i:nth-child(4) {
+        right: -1px;
+        bottom: -1px;
+        border-left: 0;
+        border-top: 0;
+      }
+      #hint {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 96px;
+        margin: 0 28px;
+        text-align: center;
+        font-size: 13.5px;
+        line-height: 1.6;
+        color: #e5e7eb;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+      }
+      #hint.warn {
+        color: #fca5a5;
+      }
+      #actions {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 34px;
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+      }
+      button {
+        font: inherit;
+        font-size: 14px;
+        padding: 10px 22px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        background: rgba(24, 27, 33, 0.82);
+        color: #e5e7eb;
+        backdrop-filter: blur(6px);
+      }
+      button.primary {
+        background: #2563eb;
+        border-color: #2563eb;
+        color: #fff;
+        font-weight: 600;
+      }
+      button:active {
+        transform: scale(0.98);
+      }
+      #title {
+        position: fixed;
+        left: 0;
+        right: 0;
+        top: calc(env(safe-area-inset-top, 0px) + 22px);
+        text-align: center;
+        font-size: 15px;
+        font-weight: 600;
+        color: #f3f4f6;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="title">扫描电脑上的二维码</div>
+    <div id="stage"><video id="v" playsinline muted autoplay></video></div>
+    <div id="mask"><div id="frame"><i></i><i></i><i></i><i></i></div></div>
+    <div id="hint">在电脑上打开 DSH 的手机访问页，把那个二维码对准取景框</div>
+    <div id="actions">
+      <button id="start" class="primary">开始扫描</button>
+      <button id="close">取消</button>
+    </div>
+    <canvas id="c" style="display: none"></canvas>
+
+    <script src="/vendor/jsQR.min.js"></script>
+    <script>
+      (function () {
+        'use strict'
+
+        var video = document.getElementById('v')
+        var canvas = document.getElementById('c')
+        var ctx = canvas.getContext('2d', { willReadFrequently: true })
+        var hint = document.getElementById('hint')
+        var startBtn = document.getElementById('start')
+        var closeBtn = document.getElementById('close')
+
+        var stream = null
+        var frameTimer = 0
+        var finished = false
+        var bridge = window.DSHRemoteScan || null
+
+        function setHint(text, warn) {
+          hint.textContent = text
+          hint.className = warn ? 'warn' : ''
+        }
+
+        function stopCamera() {
+          if (frameTimer) {
+            cancelAnimationFrame(frameTimer)
+            frameTimer = 0
+          }
+          if (stream) {
+            try {
+              stream.getTracks().forEach(function (t) {
+                t.stop()
+              })
+            } catch (e) {
+              /* 忽略：只是收尾 */
+            }
+            stream = null
+          }
+          if (video.srcObject) video.srcObject = null
+        }
+
+        function finish(text) {
+          if (finished) return
+          finished = true
+          stopCamera()
+          if (bridge && typeof bridge.done === 'function') {
+            bridge.done(String(text))
+          } else {
+            setHint('解码成功，但和 App 的通道没建立起来', true)
+          }
+        }
+
+        function tick() {
+          if (finished) return
+          if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
+            // 缩到 640 宽再解：手机上快一个数量级，二维码本来就够大
+            var width = Math.min(video.videoWidth, 640)
+            var height = Math.round((video.videoHeight * width) / video.videoWidth)
+            if (canvas.width !== width || canvas.height !== height) {
+              canvas.width = width
+              canvas.height = height
+            }
+            ctx.drawImage(video, 0, 0, width, height)
+            var image = ctx.getImageData(0, 0, width, height)
+            var found = null
+            try {
+              found = jsQR(image.data, width, height, { inversionAttempts: 'attemptBoth' })
+            } catch (e) {
+              found = null
+            }
+            if (found && found.data) {
+              finish(found.data)
+              return
+            }
+          }
+          frameTimer = requestAnimationFrame(tick)
+        }
+
+        async function start() {
+          if (finished || stream) return
+          startBtn.disabled = true
+          setHint('正在打开相机…')
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              audio: false,
+              video: { facingMode: { ideal: 'environment' } },
+            })
+          } catch (e) {
+            startBtn.disabled = false
+            setHint('没有拿到相机权限：' + (e && e.message ? e.message : e), true)
+            return
+          }
+          video.srcObject = stream
+          try {
+            await video.play()
+          } catch (e) {
+            /* 自动播放被拒也没关系，tick 里会等 readyState */
+          }
+          startBtn.style.display = 'none'
+          setHint('把二维码对准取景框')
+          frameTimer = requestAnimationFrame(tick)
+        }
+
+        startBtn.addEventListener('click', start)
+        closeBtn.addEventListener('click', function () {
+          stopCamera()
+          if (bridge && typeof bridge.cancel === 'function') bridge.cancel()
+        })
+        window.addEventListener('pagehide', stopCamera)
+
+        // 页面一进来就试着开相机（部分机型会要求用户手势，失败时按钮还在）
+        start()
+      })()
+    </script>
+  </body>
+</html>

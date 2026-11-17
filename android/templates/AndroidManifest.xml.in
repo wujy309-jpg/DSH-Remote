@@ -8,6 +8,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 把 APK 交给系统安装器；首次使用会引导去开「安装未知应用」 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 首次配置时扫二维码；没给权限也能手填地址 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
 
     <!-- Android 11+ 包可见性：要判断微信在不在，才能只在装了微信时显示「发送到微信」 -->
@@ -44,13 +48,29 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="*/*" />
             </intent-filter>
+            <!-- 配对链接：站点是运行时配置的，没法按 host 过滤，就按 /__pair 路径认。
+                 手机相机扫到 https://任意域名/__pair?code=… 点开就能直接进 App 并自动配好。 -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="@HOST@" />
+                <data android:scheme="https" android:pathPrefix="/__pair" />
+            </intent-filter>
+            <!-- 插件 / 脚本传配置的深链：dshremote://setup?host=…&code=… -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="dshremote" />
             </intent-filter>
         </activity>
+
+        <!-- 扫码页：独立的 Activity 才能干净地管相机生命周期；不导出 -->
+        <activity
+            android:name=".ScanActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
 
         <provider
             android:name=".PreviewProvider"

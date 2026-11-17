@@ -53,6 +53,7 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -74,17 +75,23 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
 
   /**
-   * 站点域名。构建时由 {@code build.sh} 从环境变量 {@code DSH_REMOTE_HOST} 写进
-   * {@code BuildConfig.HOST}，源码里不写死任何一个具体域名。
+   * 服务器地址是<b>运行时</b>配置（{@link RemoteConfig}），不编译期写死——
+   * 这样同一个安装包能连任意一台自建服务器。
+   * {@link BuildConfig#HOST} 只作为首次启动时预填的默认值，可以为空。
    */
-  private static final String HOST = BuildConfig.HOST;
-
-  private static final String HOST_SUFFIX = "." + HOST;
-  private static final String START_URL = "https://" + HOST + "/";
   private static final int FILE_CHOOSER_REQUEST = 1001;
   private static final int INSTALL_PERMISSION_REQUEST = 1002;
+  private static final int SCAN_REQUEST = 1003;
   private static final String WECHAT_PACKAGE = "com.tencent.mm";
   private static final String APK_MIME = "application/vnd.android.package-archive";
+
+  /** 运行时服务器配置（域名 / 端口 / 待用配对码）。 */
+  private RemoteConfig config;
+
+  /** 首次启动的「连接你的电脑」页；配好之后就不再出现。 */
+  private View setupView;
+  private android.widget.EditText setupServer;
+  private android.widget.EditText setupCode;
 
   /** 移动端排版层：从 assets/polish.css 读取（改样式只改那一个文件）。 */
   private String polishCss = "";
@@ -145,6 +152,7 @@ public class MainActivity extends Activity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
 
+    config = new RemoteConfig(this);
     polishCss = readAsset("polish.css");
     dark = isSystemDark();
 
@@ -189,7 +197,7 @@ public class MainActivity extends Activity {
           public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             Uri uri = request.getUrl();
             String host = uri.getHost();
-            if (host != null && isOurHost(host)) return false;
+            if (host != null && config.matchesHost(host)) return false;
             try {
               startActivity(new Intent(Intent.ACTION_VIEW, uri));
             } catch (Exception ignored) {
@@ -286,6 +294,13 @@ public class MainActivity extends Activity {
         new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
+    setupView = buildSetupScreen();
+    setupView.setVisibility(View.GONE);
+    root.addView(
+        setupView,
+        new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
     splashView = buildSplash();
     splashAt = SystemClock.uptimeMillis();
     // 兜底：首屏一直没 commit 也不要把人锁在过渡页里
@@ -299,14 +314,87 @@ public class MainActivity extends Activity {
 
     handleShare(getIntent());
 
-    // 从二维码/系统浏览器点配对链接进来时，直接加载这一次的 URL（带 code），
-    // 否则会停在首页、把配对码丢掉。
-    String deepLink = viewUrl(getIntent());
     if (savedInstanceState != null) {
       web.restoreState(savedInstanceState);
-    } else {
-      web.loadUrl(deepLink == null ? START_URL : deepLink);
+    } else if (!applyIntentConfig(getIntent())) {
+      bootFromConfig();
     }
+  }
+
+  // ------------------------------------------------------------------ 启动 / 配置
+
+  /**
+   * 有配置就直接进 GUI；没配置就停在「连接你的电脑」页。
+   *
+   * <p>构建时若注入了 {@link BuildConfig#HOST}（{@code DSH_REMOTE_HOST}），会先把它当作
+   * 默认地址写进配置——这样「给某个部署专门打的包」装完就能用，通用包则走设置页。
+   */
+  private void bootFromConfig() {
+    if (config.isConfigured()) {
+      loadConfigured(config.takePairCode());
+      return;
+    }
+    String preset = BuildConfig.HOST == null ? "" : BuildConfig.HOST.trim();
+    if (!preset.isEmpty()) {
+      String authority = RemoteConfig.normalizeAuthority(preset);
+      if (authority != null) {
+        config.save(authority, "");
+        loadConfigured("");
+        return;
+      }
+    }
+    showSetup(preset);
+  }
+
+  /** 按当前配置加载 GUI；带配对码时先走一次 /__pair。 */
+  private void loadConfigured(String pairCode) {
+    String origin = config.origin();
+    if (origin.isEmpty()) {
+      showSetup("");
+      return;
+    }
+    hideSetup();
+    String code = pairCode == null ? "" : pairCode.trim();
+    if (code.isEmpty()) {
+      web.loadUrl(origin + "/");
+    } else {
+      web.loadUrl(origin + "/__pair?code=" + Uri.encode(code.toUpperCase(Locale.ROOT)) + "&next=%2F");
+    }
+  }
+
+  /**
+   * 从启动 Intent 里读配置：
+   * <ul>
+   *   <li>{@code dshremote://setup?host=<域名>&code=<配对码>} —— 插件给的深链</li>
+   *   <li>{@code https://<域名>/__pair?code=<配对码>} —— 手机相机扫到的配对链接</li>
+   * </ul>
+   *
+   * @return 是否已处理（处理后不再走默认启动流程）
+   */
+  private boolean applyIntentConfig(Intent intent) {
+    if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return false;
+    Uri data = intent.getData();
+    if (data == null) return false;
+    String scheme = data.getScheme() == null ? "" : data.getScheme().toLowerCase(Locale.ROOT);
+
+    String authority;
+    String code;
+    if (scheme.equals("dshremote")) {
+      authority = RemoteConfig.normalizeAuthority(data.getQueryParameter("host"));
+      code = data.getQueryParameter("code");
+    } else if (scheme.equals("https")
+        && data.getPath() != null
+        && data.getPath().startsWith("/__pair")) {
+      authority = RemoteConfig.normalizeAuthority(data.toString());
+      code = data.getQueryParameter("code");
+    } else {
+      return false;
+    }
+    if (authority == null) return false;
+
+    config.save(authority, code);
+    loadConfigured(code);
+    return true;
   }
 
   // ------------------------------------------------------------------ 分享
@@ -316,23 +404,11 @@ public class MainActivity extends Activity {
     super.onNewIntent(intent);
     setIntent(intent);
     handleShare(intent);
-    String deepLink = viewUrl(intent);
-    if (deepLink != null && web != null) web.loadUrl(deepLink);
-  }
-
-  /** ACTION_VIEW 且是本域名的链接 → 返回要加载的 URL；否则 null。 */
-  private static String viewUrl(Intent intent) {
-    if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return null;
-    Uri data = intent.getData();
-    if (data == null || !"https".equals(data.getScheme())) return null;
-    String host = data.getHost();
-    if (host == null || !isOurHost(host)) return null;
-    return data.toString();
-  }
-
-  /** 本站域名或它的子域。 */
-  private static boolean isOurHost(String host) {
-    return host.equals(HOST) || host.endsWith(HOST_SUFFIX);
+    if (!applyIntentConfig(intent) && web != null && setupView != null
+        && setupView.getVisibility() == View.VISIBLE) {
+      // 设置页开着时又扫了一次码：直接重新按配置启动
+      if (config.isConfigured()) loadConfigured(config.takePairCode());
+    }
   }
 
   private void handleShare(Intent intent) {
@@ -796,12 +872,12 @@ public class MainActivity extends Activity {
                 String address =
                     source.url != null
                         ? source.url
-                        : "https://" + HOST + "/__fs?p=" + URLEncoder.encode(source.path, "UTF-8");
+                        : config.origin() + "/__fs?p=" + URLEncoder.encode(source.path, "UTF-8");
                 connection = (HttpURLConnection) new URL(address).openConnection();
                 activeDownload = connection;
                 connection.setConnectTimeout(10000);
                 connection.setReadTimeout(60000);
-                String cookie = CookieManager.getInstance().getCookie("https://" + HOST + "/");
+                String cookie = CookieManager.getInstance().getCookie(config.origin() + "/");
                 if (cookie != null) connection.setRequestProperty("Cookie", cookie);
 
                 int status = connection.getResponseCode();
@@ -1124,11 +1200,11 @@ public class MainActivity extends Activity {
               HttpURLConnection connection = null;
               try {
                 String address =
-                    "https://" + HOST + "/__fs/link?p=" + URLEncoder.encode(source.path, "UTF-8");
+                    config.origin() + "/__fs/link?p=" + URLEncoder.encode(source.path, "UTF-8");
                 connection = (HttpURLConnection) new URL(address).openConnection();
                 connection.setConnectTimeout(8000);
                 connection.setReadTimeout(8000);
-                String cookie = CookieManager.getInstance().getCookie("https://" + HOST + "/");
+                String cookie = CookieManager.getInstance().getCookie(config.origin() + "/");
                 if (cookie != null) connection.setRequestProperty("Cookie", cookie);
                 if (connection.getResponseCode() != 200) {
                   toast("拿不到浏览器链接，稍后再试");
@@ -1195,7 +1271,8 @@ public class MainActivity extends Activity {
   /** WebView 的下载回调：本站链接自己带 cookie 取，外部链接交给浏览器。 */
   private void onWebDownload(String url, String contentDisposition, String mimeType) {
     if (url == null || url.isEmpty()) return;
-    if (!url.startsWith("https://" + HOST + "/")) {
+    String origin = config.origin();
+    if (origin.isEmpty() || !url.startsWith(origin + "/")) {
       launchInBrowser(url);
       return;
     }
@@ -1352,12 +1429,23 @@ public class MainActivity extends Activity {
     pair.setOnClickListener(
         v -> {
           hideError();
-          if (web != null) web.loadUrl("https://" + HOST + "/__logout");
+          if (web != null && !config.origin().isEmpty()) web.loadUrl(config.origin() + "/__logout");
         });
     LinearLayout.LayoutParams pairParams =
         new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
     pairParams.topMargin = dp(4);
     box.addView(pair, pairParams);
+
+    Button server = styledButton("换服务器地址", false);
+    server.setOnClickListener(
+        v -> {
+          hideError();
+          showSetup(config.authority());
+        });
+    LinearLayout.LayoutParams serverParams =
+        new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    serverParams.topMargin = dp(4);
+    box.addView(server, serverParams);
 
     return box;
   }
@@ -1640,7 +1728,7 @@ public class MainActivity extends Activity {
           boolean down = true;
           HttpURLConnection connection = null;
           try {
-            URL url = new URL("https://" + HOST + "/__health");
+            URL url = new URL(config.origin() + "/__health");
             connection = (HttpURLConnection) url.openConnection();
             connection.setConnectTimeout(3000);
             connection.setReadTimeout(3000);
@@ -1689,6 +1777,208 @@ public class MainActivity extends Activity {
     runOnUiThread(() -> Toast.makeText(this, message, Toast.LENGTH_SHORT).show());
   }
 
+  // ------------------------------------------------------------------ 首次配置
+
+  /**
+   * 「连接你的电脑」页：扫码或手填服务器地址。
+   *
+   * <p>只在没有配置时出现。错误页的「换服务器地址」也能把它叫回来，
+   * 所以换机器 / 换域名不用重装。
+   */
+  private View buildSetupScreen() {
+    FrameLayout shell = new FrameLayout(this);
+    shell.setBackgroundColor(dark ? DARK_BG : LIGHT_BG);
+
+    LinearLayout box = new LinearLayout(this);
+    box.setOrientation(LinearLayout.VERTICAL);
+    box.setGravity(Gravity.CENTER_HORIZONTAL);
+    box.setPadding(dp(26), dp(24), dp(26), dp(24));
+
+    ImageView icon = new ImageView(this);
+    try {
+      icon.setImageResource(getApplicationInfo().icon);
+    } catch (Exception ignored) {
+      // 图标资源异常就不显示，不影响功能
+    }
+    box.addView(icon, new LinearLayout.LayoutParams(dp(56), dp(56)));
+
+    TextView title = new TextView(this);
+    title.setText("连接你的电脑");
+    title.setTextSize(19);
+    title.setGravity(Gravity.CENTER);
+    title.setTypeface(null, android.graphics.Typeface.BOLD);
+    title.setTextColor(dark ? 0xFFE5E7EB : 0xFF16181D);
+    LinearLayout.LayoutParams titleParams =
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    titleParams.topMargin = dp(14);
+    box.addView(title, titleParams);
+
+    TextView sub = new TextView(this);
+    sub.setText("电脑上的 DSH Remote 设置页里有二维码，扫一下就能连。\n也可以手动填服务器地址。");
+    sub.setTextSize(12.5f);
+    sub.setGravity(Gravity.CENTER);
+    sub.setLineSpacing(dp(3), 1f);
+    sub.setTextColor(dark ? 0xFF9AA4B2 : 0xFF61666B);
+    LinearLayout.LayoutParams subParams =
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    subParams.topMargin = dp(8);
+    box.addView(sub, subParams);
+
+    setupServer =
+        styledInput(
+            "dsh.example.com",
+            android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+    LinearLayout.LayoutParams serverParams =
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    serverParams.topMargin = dp(20);
+    box.addView(setupServer, serverParams);
+
+    setupCode =
+        styledInput(
+            "配对码（可选，8 位）",
+            android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
+    LinearLayout.LayoutParams codeParams =
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    codeParams.topMargin = dp(10);
+    box.addView(setupCode, codeParams);
+
+    Button scan = styledButton("扫二维码连接", true);
+    scan.setOnClickListener(v -> openScanner());
+    LinearLayout.LayoutParams scanParams =
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    scanParams.topMargin = dp(18);
+    box.addView(scan, scanParams);
+
+    Button use = styledButton("用这个地址连接", false);
+    use.setOnClickListener(v -> applySetupFromFields());
+    LinearLayout.LayoutParams useParams =
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    useParams.topMargin = dp(8);
+    box.addView(use, useParams);
+
+    TextView foot = new TextView(this);
+    foot.setText("地址必须是 https。这个 App 不保存密码，配对码只用一次。");
+    foot.setTextSize(11.5f);
+    foot.setGravity(Gravity.CENTER);
+    foot.setTextColor(dark ? 0xFF6B7280 : 0xFF9AA4B2);
+    LinearLayout.LayoutParams footParams =
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    footParams.topMargin = dp(14);
+    box.addView(foot, footParams);
+
+    shell.addView(
+        box,
+        new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER));
+    return shell;
+  }
+
+  /** 输入框统一样式，和错误页按钮一套视觉。 */
+  private android.widget.EditText styledInput(String hint, int inputType) {
+    android.widget.EditText input = new android.widget.EditText(this);
+    input.setHint(hint);
+    input.setInputType(inputType);
+    input.setTextSize(14);
+    input.setSingleLine(true);
+    input.setTextColor(dark ? 0xFFE5E7EB : 0xFF16181D);
+    input.setHintTextColor(dark ? 0xFF6B7280 : 0xFF9AA4B2);
+    input.setPadding(dp(14), dp(11), dp(14), dp(11));
+    GradientDrawable bg = new GradientDrawable();
+    bg.setCornerRadius(dp(12));
+    bg.setColor(dark ? 0xFF1B1F27 : 0xFFF3F4F6);
+    bg.setStroke(dp(1), dark ? 0x22FFFFFF : 0x14000000);
+    input.setBackground(bg);
+    return input;
+  }
+
+  private void showSetup(String presetAuthority) {
+    if (setupView == null) return;
+    String value = presetAuthority == null ? "" : presetAuthority.trim();
+    if (value.isEmpty()) value = config.authority();
+    if (value.isEmpty() && BuildConfig.HOST != null) value = BuildConfig.HOST.trim();
+    if (setupServer != null) setupServer.setText(value);
+    if (setupCode != null) setupCode.setText("");
+    // 设置页不需要过渡页：它自己就是首屏
+    hideSplash();
+    hideError();
+    setupView.setVisibility(View.VISIBLE);
+    setupView.bringToFront();
+  }
+
+  private void hideSetup() {
+    if (setupView != null) setupView.setVisibility(View.GONE);
+  }
+
+  private void applySetupFromFields() {
+    String authority =
+        RemoteConfig.normalizeAuthority(
+            setupServer == null ? "" : setupServer.getText().toString());
+    if (authority == null) {
+      toast("地址格式不对，应该像 dsh.example.com 或 https://dsh.example.com");
+      return;
+    }
+    String code = setupCode == null ? "" : setupCode.getText().toString().trim();
+    config.save(authority, code);
+    loadConfigured(code);
+    toast(code.isEmpty() ? "已连接到 " + authority : "正在配对…");
+  }
+
+  private void openScanner() {
+    try {
+      startActivityForResult(new Intent(this, ScanActivity.class), SCAN_REQUEST);
+    } catch (Exception e) {
+      toast("打不开扫码页：" + e.getMessage());
+    }
+  }
+
+  /**
+   * 扫码 / 粘贴 回来的一串文本 → 配置。
+   *
+   * <p>支持三种内容：插件给的 {@code dshremote://setup?host=&code=}、
+   * 配对链接 {@code https://域名/__pair?code=}、以及光秃秃一个域名。
+   */
+  private void handleScanResult(String text) {
+    String raw = text == null ? "" : text.trim();
+    if (raw.isEmpty()) return;
+
+    String lower = raw.toLowerCase(Locale.ROOT);
+    String authority;
+    String code = "";
+    if (lower.startsWith("dshremote://")) {
+      Uri uri = Uri.parse(raw);
+      authority = RemoteConfig.normalizeAuthority(uri.getQueryParameter("host"));
+      code = uri.getQueryParameter("code");
+    } else if (lower.startsWith("https://") && raw.contains("__pair")) {
+      Uri uri = Uri.parse(raw);
+      authority = RemoteConfig.normalizeAuthority(raw);
+      code = uri.getQueryParameter("code");
+    } else {
+      authority = RemoteConfig.normalizeAuthority(raw);
+    }
+
+    if (authority == null) {
+      // 扫到了但不是地址：把原文塞进输入框，让用户自己看一眼
+      if (setupServer != null) setupServer.setText(raw);
+      toast("这个二维码里没有可用的服务器地址");
+      return;
+    }
+    String finalCode = code == null ? "" : code.trim();
+    config.save(authority, finalCode);
+    loadConfigured(finalCode);
+    toast(finalCode.isEmpty() ? "已连接到 " + authority : "正在配对…");
+  }
+
   // ------------------------------------------------------------------ 生命周期
 
   @Override
@@ -1712,6 +2002,12 @@ public class MainActivity extends Activity {
         launchInstaller(source, file);
       } else {
         toast("还没允许安装，打开开关后再点一次安装");
+      }
+      return;
+    }
+    if (requestCode == SCAN_REQUEST) {
+      if (resultCode == RESULT_OK && data != null) {
+        handleScanResult(data.getStringExtra(ScanActivity.EXTRA_RESULT));
       }
       return;
     }
