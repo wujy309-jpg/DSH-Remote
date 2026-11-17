@@ -34,7 +34,8 @@
 它做的事就是：把一条浏览器连接映射成一个流 ID，把字节塞进与 agent 之间
 那条唯一的 WSS 里，到对端再吐出来。
 
-**③ 多绕一层 dsh-pocket。** DSH 的网页是给宽屏写的，pocket 已经解决了移动端布局、
+**③ 多绕一层 dsh-pocket。** DSH 的网页是给宽屏写的，
+[dsh-pocket](https://github.com/shaobeichen/dsh-pocket)（独立项目）已经解决了移动端布局、
 Host/Origin 栅栏、launch-token 握手、压缩。relay 不重复造这些轮子。
 
 ---

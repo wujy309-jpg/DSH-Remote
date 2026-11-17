@@ -52,7 +52,22 @@ DeepSeek Harness 跑在电脑上，人却经常不在电脑前。DSH Remote 让�
 
 ## 快速开始
 
-三步，一台公网服务器 + 一台 Mac。
+本项目**只负责「从公网把手机接进来」**，它自己不含 DSH，也不含 dsh-pocket。零到能用是四步：
+一台公网服务器 + 一台已经跑着 DSH 的 Mac。
+
+### 0. 前置：Mac 上先有 DSH + dsh-pocket
+
+| 需要 | 怎么装 | 验证 |
+| --- | --- | --- |
+| **DeepSeek Harness** | `npm install -g @deepseek-ai/dsh`（或直接装 DSH 桌面版） | `dsh --version` |
+| **dsh-pocket** | `dsh plugin --profile web add dsh-pocket -w` | `curl -sI http://127.0.0.1:3081` 有响应 |
+
+- [`dsh-pocket`](https://github.com/shaobeichen/dsh-pocket) 是另一个独立项目：它给 DSH 补了
+  移动端布局、Host/Origin 栅栏、launch-token 握手。**本项目的 agent 是把流量打进它的 3081 端口**，
+  所以它必须先跑起来。
+- 它默认监听 `0.0.0.0:3081`（局域网也能直接访问），`dsh web` 自己仍是 `3080`。
+  我们的部署会让 relay 打 `127.0.0.1:3081`，不碰 `0.0.0.0` 那份。
+- 密码文件位置跟随 `DSH_HOME`，默认 `~/.dsh/dsh-pocket/token-lan`。
 
 ### 1. 服务器：装 relay
 
@@ -77,9 +92,11 @@ bash deploy/install-agent.sh <agentToken> https://dsh.example.com
 
 ```bash
 cat ~/.dsh/remote/pair.txt      # 手机扫码或直接打开
+open ~/.dsh/remote/pair.png     # 二维码
 ```
 
-前提：这台 Mac 上 DSH 和 `dsh-pocket` 已经在 `127.0.0.1:3081` 上跑着。
+它做的事：把 `127.0.0.1:3081` 上的 dsh-pocket 挂到那条出站隧道上。
+pocket 没跑起来时，日志会写明，手机端会看到「电脑上的 DSH 没在运行」。
 
 ### 3. 手机：打开、配对、用
 

@@ -6,7 +6,26 @@
 
 - 一台能上公网的 Linux 服务器（1C1G 就够，relay 常驻内存约 40–60 MB），root 或 sudo。
 - 一个域名，A 记录指向这台服务器。
-- 一台装了 DSH 和 `dsh-pocket` 的 Mac（`127.0.0.1:3081` 能访问到）。
+- 一台 Mac，上面 **DSH** 和 **[dsh-pocket](https://github.com/shaobeichen/dsh-pocket)** 都装好，
+  且 `127.0.0.1:3081` 能访问到。
+
+> 下面所有 `dsh.example.com` 都换成你自己的域名。**不要**把它们原样用上——
+> `example.com` 是文档保留域名。
+
+### 前置安装（Mac 上，本项目之外）
+
+```bash
+npm install -g @deepseek-ai/dsh              # 1. DSH 本体（若已装桌面版可跳过）
+dsh --version
+
+dsh plugin --profile web add dsh-pocket -w   # 2. dsh-pocket：移动端布局 + 握手
+curl -sI http://127.0.0.1:3081 | head -1     #    应该有 HTTP 响应
+
+cat ~/.dsh/dsh-pocket/token-lan              # 3. 局域网密码（首次运行自动生成）
+```
+
+本项目**不含**这两个东西，也不 vendor 它们的源码：relay 只搬字节，真正把手机接进 GUI 的
+是 dsh-pocket。它没跑起来时，你会看到「电脑上的 DSH 没在运行 / Mac 没连上」这类提示。
 
 > 下面所有 `dsh.example.com` 都换成你自己的域名。**不要**把它们原样用上——
 > `example.com` 是文档保留域名。
@@ -143,10 +162,12 @@ curl -fsS http://127.0.0.1:8848/__health | python3 -m json.tool
 
 ### 2.1 前置
 
+- Node.js ≥ 20（`node -v` 确认；`install-agent.sh` 会用它跑常驻进程）。
 - DSH 已安装并且能正常打开。
-- `dsh-pocket` 在 `127.0.0.1:3081` 上跑着。它的局域网密码文件默认在
-  `~/.dsh/dsh-pocket/token-lan`（agent 用它登录 pocket）。
-- Node.js ≥ 20（`node -v` 确认）。
+- [`dsh-pocket`](https://github.com/shaobeichen/dsh-pocket) 在 `127.0.0.1:3081` 上跑着
+  （装法见本文开头的「前置安装」）。它的局域网密码文件默认在
+  `~/.dsh/dsh-pocket/token-lan`，agent 用它登录 pocket；读不到也能起，
+  但上游若要求鉴权会返回登录页。
 
 ### 2.2 安装
 
